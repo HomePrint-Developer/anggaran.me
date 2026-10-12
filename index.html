@@ -28,7 +28,7 @@
             display: flex !important;
         }
 
-        /* Custom Scrollbar kaku dan minimalis */
+        /* Custom Scrollbar */
         ::-webkit-scrollbar {
             width: 6px;
         }
@@ -51,7 +51,7 @@
             border-radius: 0.75rem !important;
         }
 
-        /* Animasi Pop-up sederhana */
+        /* Animasi Pop-up */
         @keyframes scaleIn {
             from {
                 transform: scale(0.95);
@@ -76,6 +76,7 @@
         <h1 class="text-xl font-bold tracking-tight text-slate-800 flex items-center">
             anggaran.me
         </h1>
+        <!-- Tombol untuk export/import bisa diletakkan di sini nantinya jika diperlukan -->
     </header>
 
     <!-- Main Content -->
@@ -187,27 +188,36 @@
         </div>
     </div>
 
-    <!-- Firebase Script & Logic -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { getDatabase, ref, onValue, push, set, update, remove } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyBO_jWfltM8J9obdA5Vio50kPtOqkDuDlw",
-            authDomain: "home-print-8437d.firebaseapp.com",
-            databaseURL: "https://home-print-8437d-default-rtdb.firebaseio.com",
-            projectId: "home-print-8437d",
-            storageBucket: "home-print-8437d.firebasestorage.app",
-            messagingSenderId: "418956397903",
-            appId: "1:418956397903:web:cb17eaeab729790f23093a",
-            measurementId: "G-ZHRM0PKS2D"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
+    <!-- JavaScript - Local Storage Logic -->
+    <script>
+        // Key untuk Local Storage
+        const STORAGE_KEY = 'anggaran_me_data';
 
         let currentBudgetId = null;
         let budgetsData = {};
+
+        // Inisialisasi Data dari Local Storage
+        const loadData = () => {
+            const savedData = localStorage.getItem(STORAGE_KEY);
+            if (savedData) {
+                budgetsData = JSON.parse(savedData);
+            } else {
+                budgetsData = {};
+            }
+            renderDashboard();
+        };
+
+        // Simpan Data ke Local Storage
+        const saveData = () => {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(budgetsData));
+            renderDashboard(); // Render ulang setelah menyimpan
+            if (currentBudgetId) renderExpenses(currentBudgetId); // Render ulang popup jika terbuka
+        };
+
+        // Generate Random ID 
+        const generateId = () => {
+            return 'id_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+        };
 
         const emptyState = document.getElementById('empty-state');
         const budgetList = document.getElementById('budget-list');
@@ -227,11 +237,9 @@
             });
         };
 
-        // Realtime Listener Data Utama
-        const budgetsRef = ref(db, 'budgets');
-        onValue(budgetsRef, (snapshot) => {
+        // Render Halaman Utama
+        const renderDashboard = () => {
             budgetList.innerHTML = '';
-            budgetsData = snapshot.val() || {};
 
             if (Object.keys(budgetsData).length === 0) {
                 emptyState.classList.remove('hidden');
@@ -287,16 +295,7 @@
                     budgetList.appendChild(card);
                 }
             }
-
-            // Update realtime data di pop-up jika sedang terbuka
-            if (currentBudgetId && budgetsData[currentBudgetId] && !modalDetail.classList.contains('hidden')) {
-                renderExpenses(currentBudgetId);
-            } else if (currentBudgetId && !budgetsData[currentBudgetId]) {
-                // Jika anggaran dihapus saat pop-up terbuka
-                modalDetail.classList.remove('modal-active');
-                currentBudgetId = null;
-            }
-        });
+        };
 
         // ==========================================
         // EVENT: ANGGARAN UTAMA (TAMBAH, EDIT, HAPUS)
@@ -331,7 +330,14 @@
                 }
             }).then((result) => {
                 if (result.isConfirmed) {
-                    set(push(ref(db, 'budgets')), { name: result.value.name, initialFund: result.value.fund, createdAt: Date.now() });
+                    const id = generateId();
+                    budgetsData[id] = {
+                        name: result.value.name,
+                        initialFund: result.value.fund,
+                        createdAt: Date.now(),
+                        expenses: {}
+                    };
+                    saveData();
                 }
             });
         });
@@ -368,10 +374,9 @@
                 }
             }).then((result) => {
                 if (result.isConfirmed) {
-                    update(ref(db, `budgets/${currentBudgetId}`), {
-                        name: result.value.name,
-                        initialFund: result.value.initialFund
-                    });
+                    budgetsData[currentBudgetId].name = result.value.name;
+                    budgetsData[currentBudgetId].initialFund = result.value.initialFund;
+                    saveData();
                 }
             });
         });
@@ -388,9 +393,10 @@
                 customClass: { confirmButton: '!bg-rose-600 !rounded-lg !px-5', cancelButton: '!bg-white !text-slate-700 !border !border-slate-300 !rounded-lg !px-5 hover:!bg-slate-50' }
             }).then((result) => {
                 if (result.isConfirmed) {
-                    remove(ref(db, `budgets/${currentBudgetId}`));
+                    delete budgetsData[currentBudgetId];
                     modalDetail.classList.remove('modal-active');
                     currentBudgetId = null;
+                    saveData();
                 }
             });
         });
@@ -518,7 +524,10 @@
                 }
             }).then((result) => {
                 if (result.isConfirmed && currentBudgetId) {
-                    set(push(ref(db, `budgets/${currentBudgetId}/expenses`)), result.value);
+                    const expId = generateId();
+                    if (!budgetsData[currentBudgetId].expenses) budgetsData[currentBudgetId].expenses = {};
+                    budgetsData[currentBudgetId].expenses[expId] = result.value;
+                    saveData();
                 }
             });
         });
@@ -561,7 +570,8 @@
                 }
             }).then((result) => {
                 if (result.isConfirmed) {
-                    update(ref(db, `budgets/${currentBudgetId}/expenses/${expId}`), result.value);
+                    budgetsData[currentBudgetId].expenses[expId] = result.value;
+                    saveData();
                 }
             });
         };
@@ -578,10 +588,14 @@
                 customClass: { confirmButton: '!bg-rose-600 !rounded-lg !px-5', cancelButton: '!bg-white !text-slate-700 !border !border-slate-300 !rounded-lg !px-5 hover:!bg-slate-50' }
             }).then((result) => {
                 if (result.isConfirmed) {
-                    remove(ref(db, `budgets/${currentBudgetId}/expenses/${expId}`));
+                    delete budgetsData[currentBudgetId].expenses[expId];
+                    saveData();
                 }
             });
         };
+
+        // Initialize Load
+        window.onload = loadData;
     </script>
 </body>
 
